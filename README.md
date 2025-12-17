@@ -29,7 +29,7 @@ Python 3.10+ is recommended.
 Install dependencies:
 
 ```bash
-pip install fastapi uvicorn[standard] asyncpg
+pip install fastapi uvicorn[standard] asyncpg python-multipart
 ```
 
 If you already have a project `requirements.txt`, you can also add:
@@ -38,6 +38,7 @@ If you already have a project `requirements.txt`, you can also add:
 fastapi
 uvicorn[standard]
 asyncpg
+python-multipart
 ```
 
 ---
