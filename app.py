@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 """
-sqltool.py — Simple Postgres Web SQL client using FastAPI + Bootstrap
+app.py — Simple Postgres Web SQL client using FastAPI + Bootstrap
 
 Chạy local:
     uvicorn app:app --reload --port 8000
@@ -10,6 +10,7 @@ Hoặc:
 """
 
 import html
+import json
 from typing import Any, List, Tuple
 from urllib.parse import urlparse, parse_qs
 
@@ -86,6 +87,7 @@ def _render_page(
     sql_text: str = "",
     message: str = "",
     error: str = "",
+    deletable_table: str | None = None,
 ) -> HTMLResponse:
     tables = tables or []
     columns = columns or []
@@ -116,14 +118,47 @@ def _render_page(
         """
 
     if columns and rows:
+        # Header
         header_html = "".join(f"<th>{esc(str(col))}</th>" for col in columns)
+        if deletable_table:
+            header_html += "<th style='width: 70px;'>Actions</th>"
+
+        # Body
         body_rows_html = ""
         for r in rows:
             tds = "".join(f"<td>{esc(str(v))}</td>" for v in r)
-            body_rows_html += f"<tr>{tds}</tr>\n"
+
+            # Nếu có deletable_table, thêm nút delete cho mỗi row
+            if deletable_table:
+                row_dict = {}
+                for col, val in zip(columns, r):
+                    # Lưu dưới dạng text để so sánh bằng ::text
+                    row_dict[str(col)] = "" if val is None else str(val)
+                row_json = esc(json.dumps(row_dict))
+
+                delete_btn_html = f"""
+                <td class="text-center">
+                  <form method="post" action="/" class="d-inline">
+                    <input type="hidden" name="db_url" value="{esc(db_url)}" />
+                    <input type="hidden" name="sslmode" value="{esc(sslmode)}" />
+                    <input type="hidden" name="delete_table_name" value="{esc(deletable_table)}" />
+                    <input type="hidden" name="row_json" value="{row_json}" />
+                    <button type="submit" name="action" value="delete_row"
+                            class="btn btn-outline-danger btn-sm"
+                            onclick="return confirm('Delete this row?');">
+                      Del
+                    </button>
+                  </form>
+                </td>
+                """
+            else:
+                delete_btn_html = ""
+
+            body_rows_html += f"<tr>{tds}{delete_btn_html}</tr>\n"
+
         result_html += f"""
         <div class="table-responsive mt-3">
-          <table class="table table-sm table-hover table-bordered">
+          <table class="table table-sm table-hover table-bordered w-100">
             <thead class="table-light">
               <tr>{header_html}</tr>
             </thead>
@@ -177,82 +212,108 @@ def _render_page(
   </nav>
 
   <div class="container pb-4">
-    <div class="row g-3">
-      <!-- LEFT: Connection & Tables -->
-      <div class="col-lg-4">
-        <div class="card mb-3">
-          <div class="card-body">
-            <h6 class="card-title mb-3">Connection</h6>
-            <form method="post" action="/" class="row g-2">
-              <div class="col-12">
-                <label class="form-label small text-muted">Postgres URL (DSN)</label>
-                <input type="text" name="db_url" class="form-control form-control-sm"
-                       placeholder="postgres://user:pass@host:port/dbname"
-                       value="{esc(db_url)}" required />
-              </div>
-              <div class="col-6">
-                <label class="form-label small text-muted">SSL mode</label>
-                <select name="sslmode" class="form-select form-select-sm">
-                  <option value="disable"{" selected" if sslmode == "disable" else ""}>disable</option>
-                  <option value="require"{" selected" if sslmode == "require" else ""}>require</option>
-                </select>
-              </div>
-              <div class="col-6 d-flex align-items-end justify-content-end">
-                <button type="submit" name="action" value="connect" class="btn btn-primary btn-sm">
-                  Connect & Load Tables
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="card-body">
-            <h6 class="card-title mb-3">Tables</h6>
-            <form method="post" action="/">
-              <input type="hidden" name="db_url" value="{esc(db_url)}" />
-              <input type="hidden" name="sslmode" value="{esc(sslmode)}" />
-              <div class="mb-2">
-                <select name="table_name" class="form-select form-select-sm" size="10">
-                  {table_options_html}
-                </select>
-              </div>
-              <button type="submit" name="action" value="view_table" class="btn btn-outline-secondary btn-sm w-100">
-                View Table (LIMIT 200)
-              </button>
-            </form>
+    <div class="vstack gap-3">
+      <!-- ConnectionView -->
+      <div class="row g-3">
+        <div class="col-12">
+          <div class="card">
+            <div class="card-body">
+              <h6 class="card-title mb-3">Connection</h6>
+              <form method="post" action="/" class="row g-2">
+                <div class="col-12">
+                  <label class="form-label small text-muted">Postgres URL (DSN)</label>
+                  <input type="text" id="dbUrlInput" name="db_url" class="form-control form-control-sm"
+                         placeholder="postgres://user:pass@host:port/dbname"
+                         list="dbUrlHistoryList"
+                         value="{esc(db_url)}" required />
+                  <datalist id="dbUrlHistoryList"></datalist>
+                </div>
+                <div class="col-6">
+                  <label class="form-label small text-muted">SSL mode</label>
+                  <select name="sslmode" class="form-select form-select-sm">
+                    <option value="disable"{" selected" if sslmode == "disable" else ""}>disable</option>
+                    <option value="require"{" selected" if sslmode == "require" else ""}>require</option>
+                  </select>
+                </div>
+                <div class="col-6 d-flex align-items-end justify-content-end">
+                  <button type="submit" name="action" value="connect" class="btn btn-primary btn-sm">
+                    Connect & Load Tables
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
         </div>
       </div>
 
-      <!-- RIGHT: SQL Console & Results -->
-      <div class="col-lg-8">
-        <div class="card mb-3">
-          <div class="card-body">
-            <h6 class="card-title mb-3">SQL Console</h6>
-            <form method="post" action="/">
-              <input type="hidden" name="db_url" value="{esc(db_url)}" />
-              <input type="hidden" name="sslmode" value="{esc(sslmode)}" />
-              <div class="mb-2">
-                <textarea name="sql_text" class="form-control form-control-sm sql-box"
-                          placeholder="SELECT * FROM your_table LIMIT 50;">{esc(sql_text)}</textarea>
+      <!-- ExpandCollapse: TablesView -->
+      <div class="row g-3">
+        <div class="col-12">
+          <div class="d-flex justify-content-between align-items-center mb-1">
+            <h6 class="mb-0 text-muted">Tables</h6>
+            <button class="btn btn-link btn-sm text-decoration-none" type="button"
+                    data-bs-toggle="collapse" data-bs-target="#tablesCollapse"
+                    aria-expanded="false" aria-controls="tablesCollapse">
+              <span class="me-1">Show / Hide</span>
+              <span class="bi bi-chevron-down"></span>
+            </button>
+          </div>
+          <div class="collapse show" id="tablesCollapse">
+            <div class="card">
+              <div class="card-body">
+                <form method="post" action="/">
+                  <input type="hidden" name="db_url" value="{esc(db_url)}" />
+                  <input type="hidden" name="sslmode" value="{esc(sslmode)}" />
+                  <div class="mb-2">
+                    <select name="table_name" class="form-select form-select-sm" size="10">
+                      {table_options_html}
+                    </select>
+                  </div>
+                  <button type="submit" name="action" value="view_table" class="btn btn-outline-secondary btn-sm w-100">
+                    View Table (LIMIT 200)
+                  </button>
+                </form>
               </div>
-              <div class="d-flex justify-content-between align-items-center">
-                <div class="small text-muted">
-                  Tip: dùng <code>SELECT</code> để xem dữ liệu, các lệnh khác sẽ trả về status (INSERT 0 1, UPDATE ...).
-                </div>
-                <button type="submit" name="action" value="run_sql" class="btn btn-success btn-sm">
-                  Run SQL
-                </button>
-              </div>
-            </form>
+            </div>
           </div>
         </div>
+      </div>
 
-        <div class="card">
-          <div class="card-body">
-            <h6 class="card-title mb-2">Results</h6>
-            {result_html}
+      <!-- SQLConsoleView -->
+      <div class="row g-3">
+        <div class="col-12">
+          <div class="card">
+            <div class="card-body">
+              <h6 class="card-title mb-3">SQL Console</h6>
+              <form method="post" action="/">
+                <input type="hidden" name="db_url" value="{esc(db_url)}" />
+                <input type="hidden" name="sslmode" value="{esc(sslmode)}" />
+                <div class="mb-2">
+                  <textarea name="sql_text" class="form-control form-control-sm sql-box"
+                            placeholder="SELECT * FROM your_table LIMIT 50;">{esc(sql_text)}</textarea>
+                </div>
+                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                  <div class="small text-muted">
+                    Tip: dùng <code>SELECT</code> để xem dữ liệu, các lệnh khác sẽ trả về status (INSERT 0 1, UPDATE ...).
+                  </div>
+                  <button type="submit" name="action" value="run_sql" class="btn btn-success btn-sm">
+                    Run SQL
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ResultsView -->
+      <div class="row g-3">
+        <div class="col-12">
+          <div class="card">
+            <div class="card-body">
+              <h6 class="card-title mb-2">Results</h6>
+              {result_html}
+            </div>
           </div>
         </div>
       </div>
@@ -262,6 +323,66 @@ def _render_page(
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
           integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz"
           crossorigin="anonymous"></script>
+
+  <script>
+    // Simple localStorage-based DB URL history
+    const STORAGE_KEY = "sqltool_db_urls";
+
+    function loadUrlHistory() {{
+      let raw = localStorage.getItem(STORAGE_KEY);
+      let urls = [];
+      try {{
+        urls = raw ? JSON.parse(raw) : [];
+      }} catch (e) {{
+        urls = [];
+      }}
+
+      const dataList = document.getElementById("dbUrlHistoryList");
+      if (!dataList) return;
+      dataList.innerHTML = "";
+
+      urls.forEach(u => {{
+        const opt = document.createElement("option");
+        opt.value = u;
+        dataList.appendChild(opt);
+      }});
+    }}
+
+    function saveCurrentUrl() {{
+      const input = document.getElementById("dbUrlInput");
+      if (!input) return;
+      const url = input.value.trim();
+      if (!url) return;
+
+      let raw = localStorage.getItem(STORAGE_KEY);
+      let urls = [];
+      try {{
+        urls = raw ? JSON.parse(raw) : [];
+      }} catch (e) {{
+        urls = [];
+      }}
+
+      // Đưa URL hiện tại lên đầu list, loại bỏ trùng lặp
+      urls = [url, ...urls.filter(u => u !== url)];
+      // Giữ tối đa 10 URL gần nhất
+      urls = urls.slice(0, 10);
+
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(urls));
+      loadUrlHistory();
+    }}
+
+    document.addEventListener("DOMContentLoaded", () => {{
+      loadUrlHistory();
+
+      // Lưu URL khi nhấn nút Connect
+      const connectBtn = document.querySelector('button[name="action"][value="connect"]');
+      if (connectBtn) {{
+        connectBtn.addEventListener("click", () => {{
+          saveCurrentUrl();
+        }});
+      }}
+    }});
+  </script>
 </body>
 </html>
     """
@@ -285,6 +406,8 @@ async def post_handler(
     action: str = Form("connect"),
     table_name: str | None = Form(None),
     sql_text: str = Form(""),
+    delete_table_name: str | None = Form(None),
+    row_json: str | None = Form(None),
 ) -> HTMLResponse:
     """
     Xử lý:
@@ -298,6 +421,7 @@ async def post_handler(
     rows: List[List[Any]] = []
     message = ""
     error = ""
+    deletable_table: str | None = None
 
     try:
         conn = await _connect(db_url, sslmode=sslmode)
@@ -337,6 +461,49 @@ async def post_handler(
                 sql = f"SELECT * FROM {ident} LIMIT 200;"
                 columns, rows = await _run_select(conn, sql)
                 message = f"Showing first {len(rows)} rows from {schema}.{name}"
+                deletable_table = f"{schema}.{name}"
+
+        elif action == "delete_row" and delete_table_name and row_json:
+            # Xóa 1 row dựa trên dữ liệu từ kết quả view_table
+            selected_table = delete_table_name
+            if "." in delete_table_name:
+                schema, name = delete_table_name.split(".", 1)
+            else:
+                schema, name = "public", delete_table_name
+
+            if (schema, name) not in tables:
+                error = f"Table {schema}.{name} not found or not allowed for delete."
+            else:
+                try:
+                    row_data = json.loads(row_json)
+                except Exception as ex:
+                    error = f"Invalid row data: {ex}"
+                    row_data = None
+
+                if row_data:
+                    # Build DELETE ... WHERE "col"::text = $1 AND ...
+                    conditions = []
+                    values: List[str] = []
+                    idx = 1
+                    for col, val in row_data.items():
+                        safe_col = col.replace('"', '""')
+                        conditions.append(f'"{safe_col}"::text = ${idx}')
+                        values.append(str(val))
+                        idx += 1
+
+                    ident = f'"{schema.replace("\"", "\"\"")}"."{name.replace("\"", "\"\"")}"'
+                    where_clause = " AND ".join(conditions) if conditions else "TRUE"
+                    delete_sql = f"DELETE FROM {ident} WHERE {where_clause} RETURNING *"
+
+                    deleted_rows = await conn.fetch(delete_sql, *values)
+                    deleted_count = len(deleted_rows)
+                    message = f"Deleted {deleted_count} row(s) from {schema}.{name}"
+
+                # Reload table after delete
+                ident = f'"{schema.replace("\"", "\"\"")}"."{name.replace("\"", "\"\"")}"'
+                sql = f"SELECT * FROM {ident} LIMIT 200;"
+                columns, rows = await _run_select(conn, sql)
+                deletable_table = f"{schema}.{name}"
 
         elif action == "run_sql" and sql_text.strip():
             sql = sql_text.strip()
@@ -368,6 +535,7 @@ async def post_handler(
         sql_text=sql_text,
         message=message,
         error=error,
+        deletable_table=deletable_table,
     )
 
 
@@ -380,5 +548,3 @@ if __name__ == "__main__":
         port=8000,
         reload=True,
     )
-
-
